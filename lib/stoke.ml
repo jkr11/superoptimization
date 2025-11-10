@@ -197,26 +197,21 @@ let run_equiv_optimizer ~iterations prog0 =
 ;;
 
 
-
+(* constant folding: [Load("rax", 1); IAdd("rax", 1); IMul("rax", 2)] gets optimized to Load("rax", 4)*)
 
 let run () =
-  let const_folding = [Load("rax",2); IAdd("rax","rax",3); IMul("rax", "rax", 1)] in
-  (*let reductions =
-    [
-      IMul("x", "x", 2);
-    ]
-  in*)
+  let prog0 = [IMul("rax", "rax", 2)] in
 
-  let x = run_program const_folding (0, 0) in
-  printf "Result of running %s \n" (string_of_program const_folding);
+  let x = run_program prog0 (0, 0) in
+  printf "Result of running %s \n" (string_of_program prog0);
   printf "Is === %d === \n" x;
 
-  let best_prog, best_score, visited = run_equiv_optimizer ~iterations:10000 const_folding in
+  let best_prog, best_score, visited = run_equiv_optimizer ~iterations:1000 prog0 in
 
   printf "\nFinal best program: %s\n" (string_of_program best_prog);
   printf "Score: %.2f\n" best_score;
 
-  printf "\n Original program: %s\n" (string_of_program const_folding);
+  printf "\n Original program: %s\n" (string_of_program prog0);
 
   printf "\nTop 5 visited programs:\n";
   List.iter (List.take visited 5) ~f:(fun (prog, score) ->
