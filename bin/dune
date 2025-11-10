@@ -1,0 +1,4 @@
+(executable
+ (public_name stoke)
+ (name main)
+ (libraries stoke core))

@@ -1,0 +1,3 @@
+(library
+ (name stoke)
+ (libraries core z3))
