@@ -10,6 +10,9 @@ type instr =
   | IAdd of reg * reg * int
   | IMul of reg * reg * int
   | Load of reg * int
+  (*| And of reg * reg * reg
+  | Xor of reg * reg * reg
+  | AndI of reg * reg * int*)
 
 type program = instr list
 
@@ -17,27 +20,17 @@ let string_of_instr = function
   | Add (d, r1, r2) -> sprintf "add %s,%s,%s" d r1 r2
   | Mul (d, r1, r2) -> sprintf "mul %s,%s,%s" d r1 r2
   | Mov (d, s) -> sprintf "mov %s,%s" d s
-  | IAdd (d, r, c) -> sprintf "iadd %s,%s,%d" d r c
-  | IMul (d, r, c) -> sprintf "imul %s,%s,%d" d r c
-  | Load (d, c) -> sprintf "load %s,%d" d c 
+  | IAdd (d, r, c) -> sprintf "addi %s,%s,%d" d r c
+  | IMul (d, r, c) -> sprintf "muli %s,%s,%d" d r c
+  | Load (d, c) -> sprintf "li %s,%d" d c 
+  (*| And (d, r1, r2) -> sprintf "and %s,%s,%s" d r1 r2
+  | Xor (d, r1, r2) -> sprintf "or %s,%s,%s" d r1 r2
+  | AndI (d, r1, c) -> sprintf "andi %s,%s,%d" d r1 c*)
 
 let string_of_program prog =
   String.concat ~sep:"; " (List.map prog ~f:string_of_instr)
 
-
-let eval_program_old prog (x:int) (y:int) =
-  let env = Hashtbl.of_alist_exn (module String) [("rax",x);("rbx",y)] in
-  List.iter prog ~f:(function
-    | Add (d,r1,r2) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r1 + Hashtbl.find_exn env r2)
-    | Mul (d,r1,r2) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r1 * Hashtbl.find_exn env r2)
-    | Mov (d,s) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env s)
-    | IAdd (d,r,c) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r + c)
-    | IMul (d,r,c) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r * c)
-    | Load (d, c) -> Hashtbl.set env ~key:d ~data:c
-  );
-  env
-
-  let eval_program prog (init_env : (string, int) Hashtbl.t) =
+let eval_program prog (init_env : (string, int) Hashtbl.t) =
   let env = Hashtbl.copy init_env in
   List.iter prog ~f:(function
     | Add (d,r1,r2) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r1 + Hashtbl.find_exn env r2)
@@ -49,7 +42,6 @@ let eval_program_old prog (x:int) (y:int) =
   );
   env
 
-let run_program_old prog (x, y) = Hashtbl.find_exn (eval_program_old prog x y) "rax"
 
 let run_program prog (init_env : (string,int) Hashtbl.t) ~out_reg = 
   Hashtbl.find_exn (eval_program prog init_env) out_reg
@@ -92,7 +84,7 @@ let check_equiv prog1 prog2 regs =
 let used_regs prog =
   let regs_of_instr = function
     | Add (r1,r2,r3) | Mul (r1,r2,r3) -> [r1; r2; r3]
-    | IAdd (r1,r2,_) | IMul(r1, r2, _) -> [r1; r2]
+    | IAdd (r1,r2,_) | IMul(r1, r2, _)  -> [r1; r2]
     | Mov (r1,r2) -> [r1; r2]
     | Load (r1, _) -> [r1]
   in
@@ -141,7 +133,6 @@ let cost prog =
     | IMul _ -> acc +. 4.0
     | Load _ -> acc +. 4.0
   )
-;;
 
 
 let test_equiv_random prog1 prog2 regs trials =
@@ -150,13 +141,12 @@ let test_equiv_random prog1 prog2 regs trials =
     let env = Hashtbl.of_alist_exn (module String)
       (List.map regs ~f:(fun r -> (r, Random.int 10)))
     in
-    let out_reg = "rax" in
+    let out_reg = "rax" in (* should this be made general? *)
     let r1 = run_program prog1 env ~out_reg in
     let r2 = run_program prog2 env ~out_reg in
     if r1 = r2 then incr same
   done;
   !same
-;;
 
 let score_candidate prog_orig prog_candidate regs =
   let random_matches = test_equiv_random prog_orig prog_candidate regs 10 in
@@ -166,9 +156,7 @@ let score_candidate prog_orig prog_candidate regs =
   else if check_equiv prog_orig prog_candidate regs then
     2.0 +. 2.0 ** (-1.0 *. (cost prog_candidate))
   else 0.1 +. prop
-;;
 
-(*remove best_program and best_score here, we only need the list of visited programs.*)
 let run_equiv_optimizer ~iterations prog0 regs =
   Random.self_init ();
   printf "Initial program: %s\n" (string_of_program prog0);
@@ -200,11 +188,10 @@ let run_equiv_optimizer ~iterations prog0 regs =
   in
 
   (!current_prog, !current_score, visited_sorted)
-;;
 
 let run () =
-  let prog0 = [Load("rax", 1); IAdd("rax", "rax", 1); Load("rbx", 2); Mul("rax", "rax", "rbx")] in
-  let regs = ["rax"; "rbx"] in
+  let prog0 = [Load("rax", 1); IAdd("rax", "rax", 1); IMul("rax", "rax", 2)] in
+  let regs = ["rax"] in
 
   let x = run_program prog0 (Hashtbl.of_alist_exn (module String) [("rax",0); ("rbx",0)]) ~out_reg:"rax" in
   printf "Result of running %s \n" (string_of_program prog0);
