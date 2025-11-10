@@ -26,7 +26,7 @@ let string_of_program prog =
 
 
 let eval_program prog (x:int) (y:int) =
-  let env = Hashtbl.of_alist_exn (module String) [("x",x);("y",y)] in
+  let env = Hashtbl.of_alist_exn (module String) [("rax",x);("rbx",y)] in
   List.iter prog ~f:(function
     | Add (d,r1,r2) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r1 + Hashtbl.find_exn env r2)
     | Mul (d,r1,r2) -> Hashtbl.set env ~key:d ~data:(Hashtbl.find_exn env r1 * Hashtbl.find_exn env r2)
@@ -38,16 +38,16 @@ let eval_program prog (x:int) (y:int) =
   env
 
 
-let run_program prog (x, y) = Hashtbl.find_exn (eval_program prog x y) "x"
+let run_program prog (x, y) = Hashtbl.find_exn (eval_program prog x y) "rax"
 
 
 let check_equiv prog1 prog2 =
   let ctx = mk_context [] in
   let int_sort = Arithmetic.Integer.mk_sort ctx in
-  let x = Expr.mk_const ctx (Symbol.mk_string ctx "x") int_sort in
-  let y = Expr.mk_const ctx (Symbol.mk_string ctx "y") int_sort in
+  let x = Expr.mk_const ctx (Symbol.mk_string ctx "rax") int_sort in
+  let y = Expr.mk_const ctx (Symbol.mk_string ctx "rbx") int_sort in
   let init_env () =
-    Hashtbl.of_alist_exn (module String) [ ("x", x); ("y", y) ]
+    Hashtbl.of_alist_exn (module String) [ ("rax", x); ("rbx", y) ]
   in
   let exec ctx prog env =
     List.iter prog ~f:(function
@@ -73,8 +73,8 @@ let check_equiv prog1 prog2 =
   in
   let env1 = exec ctx prog1 (init_env ()) in
   let env2 = exec ctx prog2 (init_env ()) in
-  let out1 = Hashtbl.find_exn env1 "x" in
-  let out2 = Hashtbl.find_exn env2 "x" in
+  let out1 = Hashtbl.find_exn env1 "rax" in
+  let out2 = Hashtbl.find_exn env2 "rax" in
   let neq = Boolean.mk_not ctx (Boolean.mk_eq ctx out1 out2) in
   let solver = Solver.mk_simple_solver ctx in
   Solver.add solver [neq];
@@ -104,7 +104,7 @@ let random_instr_used_regs regs =
   | 2 -> IAdd (rand_choice regs, rand_choice regs, Random.int 10)
   | 3 -> Mov (rand_choice regs, rand_choice regs)
   | 4 -> IMul (rand_choice regs, rand_choice regs, Random.int 10)
-  | 5 -> Load ("x", Random.int 10)
+  | 5 -> Load ("rax", Random.int 10)
   | _ -> failwith "unreachable"
 
 let perturb prog =
@@ -131,7 +131,7 @@ let perturb prog =
 let test_equiv_random prog1 prog2 trials =
   let same = ref 0 in
   for _ = 1 to trials do
-    let x = Random.int 5 in
+    let x = 0 in
     let y = Random.int 5 in
     let r1 = run_program prog1 (x, y) in
     let r2 = run_program prog2 (x, y) in
@@ -167,52 +167,56 @@ let run_equiv_optimizer ~iterations prog0 =
   Random.self_init ();
   printf "Initial program: %s\n" (string_of_program prog0);
 
-  let best_prog = ref prog0 in
-  let best_score = ref (score_candidate prog0 prog0) in
   let current_prog = ref prog0 in
-  let visited = ref [(!best_prog, !best_score)] in
+  let current_score = ref (score_candidate prog0 prog0) in
+  let visited = ref [(!current_prog, !current_score)] in
 
   for iter = 1 to iterations do
     let candidate = perturb !current_prog in
     let score = score_candidate prog0 candidate in
 
-    if Float.(score > !best_score) then begin
-      best_prog := candidate;
-      best_score := score;
+    let accept_ratio = score /. !current_score in
+    let r = Random.float 1.0 in
+    if Float.(r < accept_ratio) then begin
       current_prog := candidate;
+      current_score := score;
     end;
 
     visited := (candidate, score) :: !visited;
 
     if iter mod 100 = 0 then
-      printf "Iter %-5d | Best score: %.5f | %s\n"
-        iter !best_score (string_of_program !best_prog)
+      printf "Iter %-5d | Current score: %.5f | Program: %s\n"
+        iter !current_score (string_of_program !current_prog)
   done;
 
   let visited_sorted =
     List.dedup_and_sort !visited ~compare:(fun (_, s1) (_, s2) -> Float.compare s2 s1)
   in
 
-  (!best_prog, !best_score, visited_sorted)
+  (!current_prog, !current_score, visited_sorted)
 ;;
 
 
 
-let run () =
-  let prog0 =
-    [
-      Load("x", 2); IAdd("x", "x", 3);
-    ]
-  in
 
-  let x = run_program prog0 (0, 0) in
-  printf "Result of running %s \n" (string_of_program prog0);
+let run () =
+  let const_folding = [Load("rax",2); IAdd("rax","rax",3); IMul("rax", "rax", 1)] in
+  (*let reductions =
+    [
+      IMul("x", "x", 2);
+    ]
+  in*)
+
+  let x = run_program const_folding (0, 0) in
+  printf "Result of running %s \n" (string_of_program const_folding);
   printf "Is === %d === \n" x;
 
-  let best_prog, best_score, visited = run_equiv_optimizer ~iterations:10000 prog0 in
+  let best_prog, best_score, visited = run_equiv_optimizer ~iterations:10000 const_folding in
 
   printf "\nFinal best program: %s\n" (string_of_program best_prog);
   printf "Score: %.2f\n" best_score;
+
+  printf "\n Original program: %s\n" (string_of_program const_folding);
 
   printf "\nTop 5 visited programs:\n";
   List.iter (List.take visited 5) ~f:(fun (prog, score) ->
